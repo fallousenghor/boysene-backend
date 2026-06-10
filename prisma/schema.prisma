@@ -1,0 +1,508 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USERS & ROLES
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  phone        String?
+  avatar       String?
+  isActive     Boolean  @default(true)
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id])
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales         Sale[]
+  purchases     Purchase[]
+  auditLogs     AuditLog[]
+  stockMovements StockMovement[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String?
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  description String?
+  module      String
+  action      String
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────
+// CUSTOMERS
+// ─────────────────────────────────────────────
+
+model Customer {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  phone       String?
+  whatsapp    String?
+  email       String?
+  address     String?
+  city        String?
+  creditLimit Float    @default(0)
+  balance     Float    @default(0)
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sales    Sale[]
+  payments Payment[]
+  invoices Invoice[]
+  whatsappMessages WhatsappMessage[]
+
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────
+// SUPPLIERS
+// ─────────────────────────────────────────────
+
+model Supplier {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  phone     String?
+  whatsapp  String?
+  email     String?
+  address   String?
+  city      String?
+  balance   Float    @default(0)
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases Purchase[]
+  payments  Payment[]
+  invoices  Invoice[]
+  whatsappMessages WhatsappMessage[]
+
+  @@map("suppliers")
+}
+
+// ─────────────────────────────────────────────
+// CATEGORIES & BRANDS
+// ─────────────────────────────────────────────
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  image       String?
+  isActive    Boolean   @default(true)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("categories")
+}
+
+model Brand {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  logo        String?
+  isActive    Boolean   @default(true)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("brands")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTS & STOCK
+// ─────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid())
+  reference   String   @unique
+  barcode     String?  @unique
+  name        String
+  description String?
+  categoryId  String
+  brandId     String?
+  unit        String   @default("pcs")
+  buyPrice    Float
+  sellPrice   Float
+  image       String?
+  minStock    Int      @default(5)
+  currentStock Int     @default(0)
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category       Category        @relation(fields: [categoryId], references: [id])
+  brand          Brand?          @relation(fields: [brandId], references: [id])
+  stockMovements StockMovement[]
+  saleItems      SaleItem[]
+  purchaseItems  PurchaseItem[]
+
+  @@map("products")
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+model StockMovement {
+  id          String        @id @default(uuid())
+  productId   String
+  type        MovementType
+  quantity    Int
+  unitCost    Float?
+  reference   String?
+  reason      String?
+  notes       String?
+  userId      String
+  createdAt   DateTime      @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@map("stock_movements")
+}
+
+enum MovementType {
+  PURCHASE
+  SALE
+  RETURN_IN
+  RETURN_OUT
+  ADJUSTMENT
+  DAMAGE
+  TRANSFER
+}
+
+// ─────────────────────────────────────────────
+// PURCHASES
+// ─────────────────────────────────────────────
+
+model Purchase {
+  id             String         @id @default(uuid())
+  reference      String         @unique
+  supplierId     String
+  userId         String
+  status         PurchaseStatus @default(DRAFT)
+  orderDate      DateTime       @default(now())
+  expectedDate   DateTime?
+  receivedDate   DateTime?
+  subtotal       Float          @default(0)
+  taxRate        Float          @default(0)
+  taxAmount      Float          @default(0)
+  discount       Float          @default(0)
+  total          Float          @default(0)
+  amountPaid     Float          @default(0)
+  amountDue      Float          @default(0)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  items         PurchaseItem[]
+  payments      Payment[]
+  invoices      Invoice[]
+
+  @@map("purchases")
+}
+
+enum PurchaseStatus {
+  DRAFT
+  ORDERED
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseItem {
+  id         String   @id @default(uuid())
+  purchaseId String
+  productId  String
+  quantity   Int
+  unitPrice  Float
+  discount   Float    @default(0)
+  total      Float
+  received   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@map("purchase_items")
+}
+
+// ─────────────────────────────────────────────
+// SALES
+// ─────────────────────────────────────────────
+
+model Sale {
+  id            String     @id @default(uuid())
+  reference     String     @unique
+  customerId    String?
+  userId        String
+  status        SaleStatus @default(DRAFT)
+  paymentType   String     @default("CREDIT")  // CASH or CREDIT
+  saleDate      DateTime   @default(now())
+  subtotal      Float      @default(0)
+  taxRate       Float      @default(0)
+  taxAmount     Float      @default(0)
+  discount      Float      @default(0)
+  total         Float      @default(0)
+  amountPaid    Float      @default(0)
+  amountDue     Float      @default(0)
+  notes         String?
+  confirmedAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  customer Customer?  @relation(fields: [customerId], references: [id])
+  user     User       @relation(fields: [userId], references: [id])
+  items    SaleItem[]
+  payments Payment[]
+  invoices Invoice[]
+
+  @@map("sales")
+}
+
+enum SaleStatus {
+  DRAFT
+  CONFIRMED
+  PARTIAL_PAID
+  FULLY_PAID
+  CANCELLED
+}
+
+model SaleItem {
+  id        String   @id @default(uuid())
+  saleId    String
+  productId String
+  quantity  Int
+  unitPrice Float
+  discount  Float    @default(0)
+  total     Float
+  createdAt DateTime @default(now())
+
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("sale_items")
+}
+
+// ─────────────────────────────────────────────
+// PAYMENTS
+// ─────────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(uuid())
+  reference     String        @unique
+  type          PaymentType
+  method        PaymentMethod
+  amount        Float
+  saleId        String?
+  purchaseId    String?
+  customerId    String?
+  supplierId    String?
+  notes         String?
+  transactionId String?
+  createdAt     DateTime      @default(now())
+
+  sale      Sale?     @relation(fields: [saleId], references: [id])
+  purchase  Purchase? @relation(fields: [purchaseId], references: [id])
+  customer  Customer? @relation(fields: [customerId], references: [id])
+  supplier  Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@map("payments")
+}
+
+enum PaymentType {
+  INCOME
+  EXPENSE
+  REFUND
+}
+
+enum PaymentMethod {
+  CASH
+  WAVE
+  ORANGE_MONEY
+  BANK_CARD
+  CREDIT
+  BANK_TRANSFER
+}
+
+// ─────────────────────────────────────────────
+// INVOICES
+// ─────────────────────────────────────────────
+
+model Invoice {
+  id          String        @id @default(uuid())
+  number      String        @unique
+  type        InvoiceType
+  status      InvoiceStatus @default(DRAFT)
+  saleId      String?
+  purchaseId  String?
+  customerId  String?
+  supplierId  String?
+  issueDate   DateTime      @default(now())
+  dueDate     DateTime?
+  subtotal    Float
+  taxAmount   Float         @default(0)
+  discount    Float         @default(0)
+  total       Float
+  pdfUrl      String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  sale     Sale?     @relation(fields: [saleId], references: [id])
+  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  whatsappMessages WhatsappMessage[]
+
+  @@map("invoices")
+}
+
+enum InvoiceType {
+  SALE
+  PURCHASE
+  CREDIT_NOTE
+  RECEIPT
+  QUOTE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────
+// WHATSAPP
+// ─────────────────────────────────────────────
+
+model WhatsappMessage {
+  id           String          @id @default(uuid())
+  recipient    String
+  messageType  String
+  content      String
+  mediaUrl     String?
+  invoiceId    String?
+  customerId   String?
+  supplierId   String?
+  status       WhatsappStatus  @default(PENDING)
+  messageId    String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  errorMessage String?
+  createdAt    DateTime        @default(now())
+
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@map("whatsapp_messages")
+}
+
+enum WhatsappStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ─────────────────────────────────────────────
+// AUDIT & SETTINGS
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  module     String
+  entityId   String?
+  entityType String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  group     String   @default("general")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
