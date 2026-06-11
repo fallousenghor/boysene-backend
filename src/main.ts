@@ -27,16 +27,22 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // CORS
+  // Note: Vercel/Render origins are cross-site, so browser preflight (OPTIONS) must be allowed.
+  const appUrl = configService.get<string>('APP_URL')
+  const corsOrigin = [
+    'http://localhost:5173',
+    'http://localhost:3001',
+    appUrl,
+    'https://boysene-frontend.vercel.app',
+  ].filter(Boolean)
+
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:3001',
-      configService.get('APP_URL'),
-    ],
+    origin: corsOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
+
 
   // Global prefix
   app.setGlobalPrefix('api/v1');
