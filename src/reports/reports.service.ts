@@ -10,7 +10,12 @@ export class ReportQueryDto {
   customerId?: string;
   supplierId?: string;
   format?: 'json' | 'excel';
+
+  // Pagination (max 10 on frontend; backend must enforce)
+  page?: number;
+  limit?: number;
 }
+
 
 @Injectable()
 export class ReportsService {
@@ -26,84 +31,123 @@ export class ReportsService {
     return where;
   }
 
+  private getPagination(query: ReportQueryDto) {
+    const page = Math.max(1, Number(query.page ?? 1));
+    const limit = Math.max(1, Math.min(10, Number(query.limit ?? 10)));
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
+  }
+
+
   async salesReport(query: ReportQueryDto) {
     const where = { ...this.getWhere(query), status: { not: 'CANCELLED' } } as any;
     if (query.customerId) where.customerId = query.customerId;
 
-    const sales = await this.prisma.sale.findMany({
-      where,
-      include: {
-        customer: { select: { name: true, phone: true } },
-        items: { include: { product: { include: { category: true } } } },
-        user: { select: { firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const { page, limit, skip } = this.getPagination(query);
+
+    const [total, sales] = await Promise.all([
+      this.prisma.sale.count({ where }),
+      this.prisma.sale.findMany({
+        where,
+        include: {
+          customer: { select: { name: true, phone: true } },
+          items: { include: { product: { include: { category: true } } } },
+          user: { select: { firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
 
     const summary = {
-      totalSales: sales.length,
+      totalSales: total,
       totalRevenue: sales.reduce((s, sale) => s + sale.total, 0),
       totalPaid: sales.reduce((s, sale) => s + sale.amountPaid, 0),
       totalDue: sales.reduce((s, sale) => s + sale.amountDue, 0),
       avgSaleValue: sales.length ? sales.reduce((s, sale) => s + sale.total, 0) / sales.length : 0,
     };
 
-    return { summary, data: sales };
+    return { summary, data: sales, meta: { total, page, limit, pages: Math.ceil(total / limit) } };
   }
+
 
   async purchasesReport(query: ReportQueryDto) {
     const where = { ...this.getWhere(query) } as any;
     if (query.supplierId) where.supplierId = query.supplierId;
 
-    const purchases = await this.prisma.purchase.findMany({
-      where,
-      include: {
-        supplier: { select: { name: true } },
-        items: { include: { product: true } },
-        user: { select: { firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const { page, limit, skip } = this.getPagination(query);
+
+    const [total, purchases] = await Promise.all([
+      this.prisma.purchase.count({ where }),
+      this.prisma.purchase.findMany({
+        where,
+        include: {
+          supplier: { select: { name: true } },
+          items: { include: { product: true } },
+          user: { select: { firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
 
     const summary = {
-      totalPurchases: purchases.length,
+      totalPurchases: total,
       totalAmount: purchases.reduce((s, p) => s + p.total, 0),
       totalPaid: purchases.reduce((s, p) => s + p.amountPaid, 0),
       totalDue: purchases.reduce((s, p) => s + p.amountDue, 0),
     };
 
-    return { summary, data: purchases };
+    return { summary, data: purchases, meta: { total, page, limit, pages: Math.ceil(total / limit) } };
   }
 
+
   async stockReport(query: ReportQueryDto) {
-    const products = await this.prisma.product.findMany({
-      where: query.categoryId ? { categoryId: query.categoryId } : {},
-      include: { category: true, brand: true },
-      orderBy: { name: 'asc' },
-    });
+    const whereProducts = query.categoryId ? { categoryId: query.categoryId } : {};
+
+    const { page, limit, skip } = this.getPagination(query);
+
+    const [totalProducts, products] = await Promise.all([
+      this.prisma.product.count({ where: whereProducts as any }),
+      this.prisma.product.findMany({
+        where: whereProducts as any,
+        include: { category: true, brand: true },
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
 
     const movements = await this.prisma.stockMovement.findMany({
       where: this.getWhere(query),
-      include: { product: { select: { name: true, reference: true } }, user: { select: { firstName: true, lastName: true } } },
+      include: {
+        product: { select: { name: true, reference: true } },
+        user: { select: { firstName: true, lastName: true } },
+      },
       orderBy: { createdAt: 'desc' },
-      take: 500,
+      take: 10,
     });
 
     const inventoryValue = products.reduce((s, p) => s + p.currentStock * p.buyPrice, 0);
-    const lowStock = products.filter(p => p.currentStock <= p.minStock);
+    const lowStock = products.filter((p) => p.currentStock <= p.minStock);
 
     return {
       summary: {
-        totalProducts: products.length,
+        totalProducts,
         inventoryValue,
         lowStockCount: lowStock.length,
-        outOfStockCount: products.filter(p => p.currentStock === 0).length,
+        outOfStockCount: products.filter((p) => p.currentStock === 0).length,
       },
       products,
       movements,
       lowStock,
+      meta: { total: totalProducts, page, limit, pages: Math.ceil(totalProducts / limit) },
     };
   }
+
+
 
   async customersReport(query: ReportQueryDto) {
     const customers = await this.prisma.customer.findMany({

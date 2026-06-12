@@ -2,6 +2,8 @@ import { Controller, Get, Query, Res, Param, UseGuards, HttpStatus } from '@nest
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService, ReportQueryDto } from './reports.service';
+
+
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('reports') @ApiBearerAuth() @UseGuards(JwtAuthGuard) @Controller('reports')
