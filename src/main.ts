@@ -28,20 +28,41 @@ async function bootstrap() {
 
   // CORS
   // Note: Vercel/Render origins are cross-site, so browser preflight (OPTIONS) must be allowed.
-  const appUrl = configService.get<string>('APP_URL')
+  const appUrl = configService.get<string>('APP_URL');
+  // Fallback si APP_URL n'est pas défini
+  const appUrlSafe = appUrl ?? 'https://boysene-backend.onrender.com';
+
+  // Flutter web (et parfois d'autres serveurs de dev) peut tourner sur n'importe quel port,
+  // donc on autorise aussi les origins localhost en match (pattern) en mode dev.
   const corsOrigin = [
+    'https://boysene-frontend.vercel.app',
     'http://localhost:5173',
     'http://localhost:3001',
-    appUrl,
-    'https://boysene-frontend.vercel.app',
-  ].filter(Boolean)
+    appUrlSafe,
+
+  ].filter(Boolean);
 
   app.enableCors({
-    origin: corsOrigin,
+    origin: (origin, callback) => {
+      // Si la requête n'a pas d'origin (ex: mobile natif), on autorise.
+      if (!origin) return callback(null, true);
+
+      // Autoriser les origins localhost avec n'importe quel port (dev)
+      if (/^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Autoriser les origins explicitement listées
+      if (corsOrigin.includes(origin)) return callback(null, true);
+
+      // Sinon: refuser
+      return callback(null, false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
+
 
 
   // Global prefix
